@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TRAIDE Quote Tool: Best DEX Quote, Side by Side</title>
+  <meta name="description" content="Free real-time DEX swap quote comparison across Jupiter, 1inch, and TRAIDE. Humans and AI agents welcome." />
+  <meta property="og:title" content="TRAIDE Quote Tool" />
+  <meta property="og:description" content="Best DEX swap quote, side by side. Free for humans and agents." />
+  <meta property="og:url" content="https://quote.traidedefi.com" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <a href="https://traidedefi.com" class="brand" target="_blank" rel="noopener">
+      <span class="brand-mark">TRAIDE</span>
+      <span class="brand-tool">Quote Tool</span>
+    </a>
+    <nav>
+      <a href="https://traidedefi.com/agents/integrate" target="_blank" rel="noopener">Agent API</a>
+      <a href="https://github.com/NoBanks/traide-quote-tool" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>Best DEX quote, side by side.</h1>
+      <p class="tagline">Compare swap quotes across Jupiter, 1inch, and TRAIDE in real time. Free for humans. Free for agents.</p>
+    </section>
+
+    <section class="quote-form">
+      <form id="quote-form">
+        <div class="row">
+          <label>Chain
+            <select name="chain" id="chain">
+              <option value="base">Base</option>
+              <option value="eth">Ethereum</option>
+              <option value="arbitrum">Arbitrum</option>
+              <option value="optimism">Optimism</option>
+              <option value="polygon">Polygon</option>
+              <option value="solana">Solana</option>
+            </select>
+          </label>
+        </div>
+        <div class="row pair">
+          <label>Sell
+            <input type="text" name="sell" id="sell" value="USDC" autocomplete="off" />
+          </label>
+          <label>Amount
+            <input type="number" name="amount" id="amount" value="100" step="any" min="0" />
+          </label>
+          <label>Buy
+            <input type="text" name="buy" id="buy" value="ETH" autocomplete="off" />
+          </label>
+        </div>
+        <button type="submit" id="submit-btn">Get Quotes</button>
+      </form>
+      <p class="hint">Use a symbol (USDC, ETH, WBTC) for popular tokens or paste a full contract address. Solana uses SOL, USDC, etc.</p>
+    </section>
+
+    <section id="results" class="results hidden">
+      <div id="status" class="status"></div>
+      <div id="quote-cards" class="quote-cards"></div>
+    </section>
+
+    <section class="agent-section">
+      <h2>For AI agents</h2>
+      <p>Same data as the UI, clean JSON. Optional x402 tip path for low-latency guaranteed-response calls.</p>
+<pre><code>curl 'https://quote.traidedefi.com/api/quote?chain=base&amp;sell=USDC&amp;buy=ETH&amp;amount=100'</code></pre>
+      <p>Full docs at the <a href="https://github.com/NoBanks/traide-quote-tool" target="_blank" rel="noopener">GitHub README</a>.</p>
+    </section>
+
+    <section class="tip-section">
+      <h2>Tip the tool</h2>
+      <p>This tool is free and open source. If it saved you a click or earned your agent a basis point, tips fund Quote Tool ops and Living Agentic stack development.</p>
+      <div id="tip-addresses" class="tip-addresses">
+        <div class="tip-loading">loading tip addresses</div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      Built by <a href="https://traidedefi.com" target="_blank" rel="noopener">TRAIDE</a>
+      <span class="sep">.</span>
+      Part of the <a href="https://livingagentic.me" target="_blank" rel="noopener">Living Agentic</a> stack
+      <span class="sep">.</span>
+      Open source <a href="https://github.com/NoBanks/traide-quote-tool" target="_blank" rel="noopener">on GitHub</a>
+    </p>
+  </footer>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

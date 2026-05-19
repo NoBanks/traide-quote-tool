@@ -1,0 +1,16 @@
+name = "traide-quote-tool"
+compatibility_date = "2026-05-19"
+pages_build_output_dir = "public"
+
+# Functions live in functions/api and are auto-mounted at /api/*.
+# Secrets configured via: wrangler pages secret put ONEINCH_API_KEY
+# Required secrets:
+#   ONEINCH_API_KEY  free tier from https://portal.1inch.dev/
+# Optional secrets (for v1.5):
+#   ZEROEX_API_KEY   free tier from https://dashboard.0x.org/
+
+[vars]
+# Public defaults, NOT secrets. Safe to commit.
+TRAIDE_EVM_TIP_ADDRESS = "0x897025A3d0260fAeA5Dc705e2037b8AFB0480F23"
+TRAIDE_SOLANA_TIP_ADDRESS = "pending"
+QUOTE_CACHE_TTL_SECONDS = "5"
