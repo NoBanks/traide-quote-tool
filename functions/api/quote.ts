@@ -63,6 +63,16 @@ const KYBER_CHAIN_SLUG: Record<number, string> = {
   56: 'bsc',
 };
 
+// OpenOcean chain slugs (used as the second EVM aggregator for side-by-side comparison)
+const OPENOCEAN_CHAIN_SLUG: Record<number, string> = {
+  1: 'eth',
+  8453: 'base',
+  42161: 'arbitrum',
+  10: 'optimism',
+  137: 'polygon',
+  56: 'bsc',
+};
+
 const SOLANA_CHAINS = new Set(['solana', 'sol']);
 
 // Symbol -> {address, decimals} per chain. Lowercase symbol keys.
@@ -190,6 +200,10 @@ async function fetchJupiterQuote(sell: TokenMeta, buy: TokenMeta, atomicAmount: 
   }
 }
 
+// Browser-like UA is REQUIRED for KyberSwap. Their CF WAF returns "Just a moment..." 403
+// to any request without one. OpenOcean does not require this.
+const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+
 async function fetchKyberSwapQuote(chainId: number, sell: TokenMeta, buy: TokenMeta, atomicAmount: string): Promise<QuoteResult> {
   const t0 = Date.now();
   const slug = KYBER_CHAIN_SLUG[chainId];
@@ -202,7 +216,12 @@ async function fetchKyberSwapQuote(chainId: number, sell: TokenMeta, buy: TokenM
     url.searchParams.set('tokenOut', buy.address);
     url.searchParams.set('amountIn', atomicAmount);
     const r = await fetch(url.toString(), {
-      headers: { Accept: 'application/json', 'x-client-id': 'traide-quote-tool' },
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': BROWSER_UA,
+        'Accept-Language': 'en-US,en;q=0.9',
+        'x-client-id': 'traide-quote-tool',
+      },
     });
     if (!r.ok) {
       const txt = await r.text().catch(() => '');
@@ -235,6 +254,41 @@ async function fetchKyberSwapQuote(chainId: number, sell: TokenMeta, buy: TokenM
     };
   } catch (e: any) {
     return { source: 'KyberSwap', error: e?.message || String(e) };
+  }
+}
+
+async function fetchOpenOceanQuote(chainId: number, sell: TokenMeta, buy: TokenMeta, humanAmount: string): Promise<QuoteResult> {
+  const t0 = Date.now();
+  const slug = OPENOCEAN_CHAIN_SLUG[chainId];
+  if (!slug) {
+    return { source: 'OpenOcean', error: `OpenOcean does not support chain id ${chainId}` };
+  }
+  try {
+    const url = new URL(`https://open-api.openocean.finance/v3/${slug}/quote`);
+    url.searchParams.set('inTokenAddress', sell.address);
+    url.searchParams.set('outTokenAddress', buy.address);
+    url.searchParams.set('amount', humanAmount);  // OpenOcean wants HUMAN units, not wei
+    url.searchParams.set('slippage', '1');
+    url.searchParams.set('gasPrice', '5');
+    const r = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+    if (!r.ok) {
+      return { source: 'OpenOcean', error: `OpenOcean ${r.status}` };
+    }
+    const data: any = await r.json();
+    if (data.code !== 200) {
+      return { source: 'OpenOcean', error: `OpenOcean code ${data.code}: ${data.message || 'unknown'}` };
+    }
+    const d = data.data;
+    return {
+      source: 'OpenOcean',
+      buyAmount: fromAtomic(String(d.outAmount), buy.decimals),
+      buyAmountUsd: d.outToken?.volume ? Number(d.outToken.volume) : undefined,
+      gasEstimate: d.estimatedGas ? String(d.estimatedGas) : undefined,
+      executeUrl: `https://app.openocean.finance/CLASSIC#/${slug.toUpperCase()}/${sell.symbol}/${buy.symbol}`,
+      latencyMs: Date.now() - t0,
+    };
+  } catch (e: any) {
+    return { source: 'OpenOcean', error: e?.message || String(e) };
   }
 }
 
@@ -299,8 +353,12 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     if (!sell) return badRequest(`Unknown EVM token "${sellRaw}" on ${chain}. Use a known symbol or full 0x address.`);
     if (!buy) return badRequest(`Unknown EVM token "${buyRaw}" on ${chain}.`);
     const atomic = toAtomic(amount, sell.decimals);
-    const [kyberQuote] = await Promise.all([fetchKyberSwapQuote(chainId, sell, buy, atomic)]);
-    quotes = [kyberQuote, traidePlaceholder(chain)];
+    // Fan out to both EVM aggregators in parallel for true side-by-side comparison.
+    const [kyberQuote, openOceanQuote] = await Promise.all([
+      fetchKyberSwapQuote(chainId, sell, buy, atomic),
+      fetchOpenOceanQuote(chainId, sell, buy, amount),
+    ]);
+    quotes = [kyberQuote, openOceanQuote, traidePlaceholder(chain)];
   }
 
   const body: ResponseShape = {
