@@ -1,17 +1,17 @@
 // TRAIDE Quote Tool, GET /api/health
-// Liveness probe. Reports build time, supported chains, whether 1inch key is set.
+// Liveness probe. Reports supported chains and aggregator endpoints.
 
-interface Env {
-  ONEINCH_API_KEY?: string;
-}
-
-export const onRequestGet: PagesFunction<Env> = async (context) => {
+export const onRequestGet: PagesFunction = async () => {
   return new Response(JSON.stringify({
     status: 'ok',
     service: 'traide-quote-tool',
-    version: '0.1.0',
-    supported_chains: ['eth', 'base', 'arbitrum', 'optimism', 'polygon', 'solana'],
-    oneinch_configured: Boolean(context.env.ONEINCH_API_KEY),
+    version: '0.2.0',
+    supported_chains: ['eth', 'base', 'arbitrum', 'optimism', 'polygon', 'bsc', 'solana'],
+    aggregators: {
+      evm: 'KyberSwap (open API, no key required)',
+      solana: 'Jupiter v6 (open API)',
+      traide: 'placeholder until Base mainnet GA',
+    },
     timestamp: new Date().toISOString(),
   }, null, 2), {
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },

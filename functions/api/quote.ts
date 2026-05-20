@@ -1,16 +1,15 @@
 // TRAIDE Quote Tool, GET /api/quote
 //
-// Fans out to Jupiter (Solana) and 1inch (EVM) in parallel, merges results,
+// Fans out to Jupiter (Solana) and KyberSwap (EVM) in parallel, merges results,
 // returns aggregated JSON. TRAIDE is included as a placeholder until mainnet
 // GA on Base. CF Pages Function, runs on the Workers runtime at the edge.
 //
-// Env (set via `wrangler pages secret put ...`):
-//   ONEINCH_API_KEY: free tier from https://portal.1inch.dev/
+// No API keys required. KyberSwap Aggregator API is open and free.
+// (1inch was the original choice but requires KYB verification, deferred.)
 //
 // Cache: 5s per (chain, sell, buy, amount) tuple via the CF cache API.
 
 interface Env {
-  ONEINCH_API_KEY?: string;
   QUOTE_CACHE_TTL_SECONDS?: string;
 }
 
@@ -44,13 +43,24 @@ interface ResponseShape {
   fetchedAt: string;
 }
 
-// 1inch chain id mapping
+// EVM chain id mapping
 const CHAIN_ID: Record<string, number> = {
   eth: 1, ethereum: 1,
   base: 8453,
   arbitrum: 42161, arb: 42161,
   optimism: 10, op: 10,
   polygon: 137, matic: 137,
+  bsc: 56, bnb: 56,
+};
+
+// KyberSwap chain slugs (different from chain IDs)
+const KYBER_CHAIN_SLUG: Record<number, string> = {
+  1: 'ethereum',
+  8453: 'base',
+  42161: 'arbitrum',
+  10: 'optimism',
+  137: 'polygon',
+  56: 'bsc',
 };
 
 const SOLANA_CHAINS = new Set(['solana', 'sol']);
@@ -180,34 +190,51 @@ async function fetchJupiterQuote(sell: TokenMeta, buy: TokenMeta, atomicAmount: 
   }
 }
 
-async function fetch1inchQuote(chainId: number, sell: TokenMeta, buy: TokenMeta, atomicAmount: string, apiKey: string | undefined): Promise<QuoteResult> {
+async function fetchKyberSwapQuote(chainId: number, sell: TokenMeta, buy: TokenMeta, atomicAmount: string): Promise<QuoteResult> {
   const t0 = Date.now();
-  if (!apiKey) {
-    return { source: '1inch', error: 'ONEINCH_API_KEY not configured' };
+  const slug = KYBER_CHAIN_SLUG[chainId];
+  if (!slug) {
+    return { source: 'KyberSwap', error: `KyberSwap does not support chain id ${chainId}` };
   }
   try {
-    const url = new URL(`https://api.1inch.dev/swap/v6.0/${chainId}/quote`);
-    url.searchParams.set('src', sell.address);
-    url.searchParams.set('dst', buy.address);
-    url.searchParams.set('amount', atomicAmount);
-    url.searchParams.set('includeGas', 'true');
+    const url = new URL(`https://aggregator-api.kyberswap.com/${slug}/api/v1/routes`);
+    url.searchParams.set('tokenIn', sell.address);
+    url.searchParams.set('tokenOut', buy.address);
+    url.searchParams.set('amountIn', atomicAmount);
     const r = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      headers: { Accept: 'application/json', 'x-client-id': 'traide-quote-tool' },
     });
     if (!r.ok) {
       const txt = await r.text().catch(() => '');
-      return { source: '1inch', error: `1inch ${r.status}: ${txt.slice(0, 200)}` };
+      return { source: 'KyberSwap', error: `KyberSwap ${r.status}: ${txt.slice(0, 200)}` };
     }
     const data: any = await r.json();
+    if (data.code !== 0) {
+      return { source: 'KyberSwap', error: `KyberSwap code ${data.code}: ${data.message || 'unknown'}` };
+    }
+    const summary = data.data?.routeSummary;
+    if (!summary) {
+      return { source: 'KyberSwap', error: 'KyberSwap returned no routeSummary' };
+    }
+    // Build a simple route breakdown from the first hop's exchange names if available
+    const route: string[] = [];
+    const path = data.data?.routeSummary?.route?.[0] || [];
+    for (const hop of path) {
+      const ex = hop?.exchange;
+      if (ex && !route.includes(ex)) route.push(ex);
+    }
     return {
-      source: '1inch',
-      buyAmount: fromAtomic(String(data.dstAmount), buy.decimals),
-      gasEstimate: data.gas ? String(data.gas) : undefined,
-      executeUrl: `https://app.1inch.io/#/${chainId}/simple/swap/${sell.address}/${buy.address}`,
+      source: 'KyberSwap',
+      buyAmount: fromAtomic(String(summary.amountOut), buy.decimals),
+      buyAmountUsd: summary.amountOutUsd ? Number(summary.amountOutUsd) : undefined,
+      gasEstimate: summary.gas ? String(summary.gas) : undefined,
+      gasUsd: summary.gasUsd ? Number(summary.gasUsd) : undefined,
+      route: route.length ? route : undefined,
+      executeUrl: `https://kyberswap.com/swap/${slug}/${sell.symbol.toLowerCase()}-to-${buy.symbol.toLowerCase()}`,
       latencyMs: Date.now() - t0,
     };
   } catch (e: any) {
-    return { source: '1inch', error: e?.message || String(e) };
+    return { source: 'KyberSwap', error: e?.message || String(e) };
   }
 }
 
@@ -272,9 +299,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     if (!sell) return badRequest(`Unknown EVM token "${sellRaw}" on ${chain}. Use a known symbol or full 0x address.`);
     if (!buy) return badRequest(`Unknown EVM token "${buyRaw}" on ${chain}.`);
     const atomic = toAtomic(amount, sell.decimals);
-    const apiKey = context.env.ONEINCH_API_KEY;
-    const [oneInchQuote] = await Promise.all([fetch1inchQuote(chainId, sell, buy, atomic, apiKey)]);
-    quotes = [oneInchQuote, traidePlaceholder(chain)];
+    const [kyberQuote] = await Promise.all([fetchKyberSwapQuote(chainId, sell, buy, atomic)]);
+    quotes = [kyberQuote, traidePlaceholder(chain)];
   }
 
   const body: ResponseShape = {
